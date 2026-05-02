@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>字幕拼接工具</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div>
+        <h1>字幕拼接工具</h1>
+        <p id="projectMeta">未导入图片</p>
+      </div>
+      <div class="topbar-actions">
+        <label class="button primary" for="fileInput">导入图片</label>
+        <button class="button" id="downloadBtn" type="button" disabled>导出图片</button>
+        <input id="fileInput" type="file" accept="image/*" multiple>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <section class="preview-panel" aria-label="拼接预览">
+        <div class="panel-head">
+          <h2>预览</h2>
+          <span id="canvasMeta">等待导入</span>
+        </div>
+        <div class="preview-stage" id="dropZone">
+          <canvas id="previewCanvas"></canvas>
+          <div class="empty-state" id="emptyState">
+            <strong>导入电影截图</strong>
+            <span>拖入多张图片，或点击右上角导入。</span>
+          </div>
+        </div>
+      </section>
+
+      <aside class="controls" aria-label="输出设置">
+        <section class="control-block">
+          <div class="section-title">
+            <h2>裁剪范围</h2>
+            <button class="text-button" id="useBottomPreset" type="button">后续底部 28%</button>
+          </div>
+          <div class="range-row">
+            <label for="firstCropBottom">首张下边界</label>
+            <input id="firstCropBottom" type="range" min="1" max="100" step="1" value="100">
+            <input id="firstCropBottomNum" class="number-input" type="number" min="1" max="100" step="1" value="100">
+            <span>%</span>
+          </div>
+          <div class="range-row">
+            <label for="cropTop">上边界</label>
+            <input id="cropTop" type="range" min="0" max="99" step="1" value="70">
+            <input id="cropTopNum" class="number-input" type="number" min="0" max="99" step="1" value="70">
+            <span>%</span>
+          </div>
+          <div class="range-row">
+            <label for="cropBottom">下边界</label>
+            <input id="cropBottom" type="range" min="1" max="100" step="1" value="96">
+            <input id="cropBottomNum" class="number-input" type="number" min="1" max="100" step="1" value="96">
+            <span>%</span>
+          </div>
+          <div class="range-readout" id="cropReadout">后续图片字幕带：70% - 96%</div>
+        </section>
+
+        <section class="control-block">
+          <h2>拼接</h2>
+          <div class="segmented" role="group" aria-label="拼接方向">
+            <button class="segment active" data-direction="vertical" type="button">纵向</button>
+            <button class="segment" data-direction="horizontal" type="button">横向</button>
+          </div>
+          <label class="field">
+            <span>片段间距</span>
+            <input id="gapSize" type="number" min="0" max="200" step="1" value="0">
+          </label>
+        </section>
+
+        <section class="control-block">
+          <div class="section-title">
+            <h2>水印</h2>
+            <label class="switch">
+              <input id="watermarkEnabled" type="checkbox">
+              <span>启用</span>
+            </label>
+          </div>
+          <div class="watermark-options" id="watermarkOptions" hidden>
+            <label class="field">
+              <span>文字</span>
+              <input id="watermarkText" type="text" value="film subtitle cut" maxlength="80">
+            </label>
+            <div class="field-grid two">
+              <label class="field">
+                <span>字体</span>
+                <select id="watermarkFont">
+                  <option value="Arial, Helvetica, sans-serif">Arial</option>
+                  <option value="'Microsoft YaHei', 'PingFang SC', sans-serif">微软雅黑</option>
+                  <option value="Georgia, serif">Georgia</option>
+                  <option value="'Courier New', monospace">Courier New</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>字号</span>
+                <input id="watermarkSize" type="number" min="8" max="160" step="1" value="28">
+              </label>
+            </div>
+            <div class="custom-font-row">
+              <label class="field">
+                <span>本地字体名称</span>
+                <input id="customFontName" type="text" placeholder="例如：HarmonyOS Sans SC" maxlength="80">
+              </label>
+              <button class="button" id="addCustomFont" type="button">添加</button>
+            </div>
+            <div class="rgba-grid">
+              <label>R<input id="colorR" type="number" min="0" max="255" step="1" value="255"></label>
+              <label>G<input id="colorG" type="number" min="0" max="255" step="1" value="255"></label>
+              <label>B<input id="colorB" type="number" min="0" max="255" step="1" value="255"></label>
+              <label>A<input id="colorA" type="number" min="0" max="1" step="0.01" value="0.72"></label>
+            </div>
+            <div class="watermark-placement">
+              <div class="position-grid" id="positionGrid" aria-label="水印位置">
+                <button data-pos="top-left" type="button" aria-label="左上"></button>
+                <button data-pos="top-center" type="button" aria-label="上中"></button>
+                <button data-pos="top-right" type="button" aria-label="右上"></button>
+                <button data-pos="middle-left" type="button" aria-label="左中"></button>
+                <button data-pos="middle-center" type="button" aria-label="正中"></button>
+                <button data-pos="middle-right" type="button" aria-label="右中"></button>
+                <button data-pos="bottom-left" type="button" aria-label="左下"></button>
+                <button data-pos="bottom-center" type="button" aria-label="下中"></button>
+                <button class="active" data-pos="bottom-right" type="button" aria-label="右下"></button>
+              </div>
+              <div class="offset-fields">
+                <label class="field">
+                  <span>X 偏移</span>
+                  <input id="watermarkOffsetX" type="number" min="0" max="1000" step="1" value="24">
+                </label>
+                <label class="field">
+                  <span>Y 偏移</span>
+                  <input id="watermarkOffsetY" type="number" min="0" max="1000" step="1" value="24">
+                </label>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="control-block">
+          <div class="section-title">
+            <h2>输出</h2>
+            <label class="switch">
+              <input id="autoSize" type="checkbox" checked>
+              <span>自动尺寸</span>
+            </label>
+          </div>
+          <div class="field-grid two">
+            <label class="field">
+              <span>宽度</span>
+              <input id="outputWidth" type="number" min="1" step="1" disabled>
+            </label>
+            <label class="field">
+              <span>高度</span>
+              <input id="outputHeight" type="number" min="1" step="1" disabled>
+            </label>
+          </div>
+          <label class="switch compact">
+            <input id="lockRatio" type="checkbox" checked disabled>
+            <span>保持比例</span>
+          </label>
+          <div class="field-grid two">
+            <label class="field">
+              <span>格式</span>
+              <select id="outputFormat">
+                <option value="image/png">PNG</option>
+                <option value="image/jpeg">JPEG</option>
+                <option value="image/webp">WebP</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>质量</span>
+              <input id="outputQuality" type="number" min="0.1" max="1" step="0.01" value="0.92" disabled>
+            </label>
+          </div>
+        </section>
+      </aside>
+    </main>
+
+    <section class="timeline-shell" aria-label="图片时间轴">
+      <div class="panel-head">
+        <h2>时间轴</h2>
+        <span id="timelineMeta">0 张</span>
+      </div>
+      <div class="timeline" id="timeline"></div>
+    </section>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+
+</html>
