@@ -7,6 +7,7 @@ const els = {
   projectMeta: $("#projectMeta"),
   canvasMeta: $("#canvasMeta"),
   previewCanvas: $("#previewCanvas"),
+  outputError: $("#outputError"),
   emptyState: $("#emptyState"),
   dropZone: $("#dropZone"),
   timeline: $("#timeline"),
@@ -73,6 +74,41 @@ let dragImageId = null;
 let renderFrame = 0;
 let idCounter = 0;
 const CUSTOM_FONTS_KEY = "filmsubcut.customFonts";
+// Application budgets, not guarantees of available browser/device memory.
+// Allow for the RGBA canvas plus two working copies during rendering/export.
+const OUTPUT_LIMITS = Object.freeze({
+  maxSide: 16384,
+  maxPixels: 16000000,
+  maxWorkingBytes: 192 * 1024 * 1024,
+  bytesPerPixel: 12,
+});
+let exportInProgress = false;
+
+function getOutputSizeError({ width, height }) {
+  if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width < 1 || height < 1) {
+    return "输出尺寸无效，请输入有效的正整数宽高。";
+  }
+  const pixels = width * height;
+  if (width > OUTPUT_LIMITS.maxSide || height > OUTPUT_LIMITS.maxSide ||
+    pixels > OUTPUT_LIMITS.maxPixels || pixels * OUTPUT_LIMITS.bytesPerPixel > OUTPUT_LIMITS.maxWorkingBytes) {
+    return `输出尺寸 ${width} × ${height} 超出安全限制：单边最多 16384 像素、总计最多 1600 万像素。请关闭自动尺寸并减小宽高，或减少图片数量。`;
+  }
+  return "";
+}
+
+function showOutputError(message) {
+  // Release the previous backing store and prevent exporting a stale preview.
+  els.previewCanvas.width = 0;
+  els.previewCanvas.height = 0;
+  els.previewCanvas.classList.remove("visible");
+  els.emptyState.classList.add("hidden");
+  els.outputError.textContent = message;
+  els.outputError.classList.remove("hidden");
+  els.downloadBtn.disabled = true;
+  els.canvasMeta.textContent = "无法生成预览";
+  updateMeta();
+  return false;
+}
 
 function makeId() {
   if (window.crypto && typeof window.crypto.randomUUID === "function") {
@@ -293,10 +329,28 @@ async function addFiles(fileList) {
 
   els.projectMeta.textContent = "正在读取图片...";
   try {
-    const loaded = await Promise.all(files.map(loadImageFile));
-    state.images.push(...loaded);
-    renderTimeline();
-    scheduleRender();
+    const results = await Promise.allSettled(files.map(loadImageFile));
+    const loaded = [];
+    const failedNames = [];
+    results.forEach((result, index) => {
+      if (result.status === "fulfilled") {
+        loaded.push(result.value);
+      } else {
+        failedNames.push(files[index].name);
+      }
+    });
+
+    if (loaded.length) {
+      state.images.push(...loaded);
+      renderTimeline();
+      scheduleRender();
+    } else {
+      updateMeta();
+    }
+
+    if (failedNames.length) {
+      window.alert(`成功导入 ${loaded.length} 张，失败 ${failedNames.length} 张。以下图片无法读取：\n${failedNames.join("\n")}`);
+    }
   } catch (error) {
     window.alert(error.message);
     updateMeta();
@@ -421,8 +475,8 @@ function resolveOutputSize(rawSize) {
   if (!rawSize.width || !rawSize.height) return { width: 0, height: 0 };
   if (state.autoSize) return rawSize;
 
-  let width = Math.round(clamp(readNumber(els.outputWidth, rawSize.width), 1, 32767));
-  let height = Math.round(clamp(readNumber(els.outputHeight, rawSize.height), 1, 32767));
+  let width = Math.round(readNumber(els.outputWidth, rawSize.width));
+  let height = Math.round(readNumber(els.outputHeight, rawSize.height));
 
   if (state.lockRatio) {
     const aspect = rawSize.width / rawSize.height;
@@ -514,16 +568,18 @@ function renderComposite() {
   updateFormatControls();
 
   const canvas = els.previewCanvas;
-  const ctx = canvas.getContext("2d");
+  els.outputError.classList.add("hidden");
 
   if (!state.images.length) {
+    canvas.width = 0;
+    canvas.height = 0;
     canvas.classList.remove("visible");
     els.emptyState.classList.remove("hidden");
     els.downloadBtn.disabled = true;
     els.canvasMeta.textContent = "等待导入";
     els.projectMeta.textContent = "未导入图片";
     els.timelineMeta.textContent = "0 张";
-    return;
+    return false;
   }
 
   const slices = computeSlices();
@@ -532,24 +588,33 @@ function renderComposite() {
   updateSizeControls();
 
   const outputSize = resolveOutputSize(rawSize);
-  if (!outputSize.width || !outputSize.height) return;
+  const sizeError = getOutputSizeError(outputSize);
+  if (sizeError) return showOutputError(sizeError);
 
-  canvas.width = outputSize.width;
-  canvas.height = outputSize.height;
-
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = "high";
-  ctx.clearRect(0, 0, outputSize.width, outputSize.height);
-  ctx.fillStyle = "#000";
-  ctx.fillRect(0, 0, outputSize.width, outputSize.height);
-  drawSlices(ctx, slices, rawSize, outputSize);
-  drawWatermark(ctx, outputSize);
+  try {
+    // Reset both dimensions first so resizing cannot allocate oldWidth * newHeight.
+    canvas.width = 0;
+    canvas.height = 0;
+    canvas.width = outputSize.width;
+    canvas.height = outputSize.height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas unavailable");
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, outputSize.width, outputSize.height);
+    drawSlices(ctx, slices, rawSize, outputSize);
+    drawWatermark(ctx, outputSize);
+  } catch {
+    return showOutputError("浏览器无法绘制此尺寸的图片，请减小输出尺寸或减少图片数量。");
+  }
 
   canvas.classList.add("visible");
   els.emptyState.classList.add("hidden");
-  els.downloadBtn.disabled = false;
+  els.downloadBtn.disabled = exportInProgress;
   els.canvasMeta.textContent = `${outputSize.width}x${outputSize.height} · ${state.direction === "vertical" ? "纵向" : "横向"}`;
   updateMeta();
+  return true;
 }
 
 function updateMeta() {
@@ -566,31 +631,44 @@ function updateMeta() {
 }
 
 function downloadCanvas() {
-  if (!state.images.length) return;
-  renderComposite();
+  if (!state.images.length || exportInProgress) return;
+  syncStateFromControls();
+  if (!renderComposite()) return;
+  exportInProgress = true;
+  els.downloadBtn.disabled = true;
+  const finishExport = () => {
+    exportInProgress = false;
+    els.downloadBtn.disabled = !state.images.length || !els.outputError.classList.contains("hidden");
+  };
 
   const mime = state.format;
   const quality = mime === "image/png" ? undefined : state.quality;
-  els.previewCanvas.toBlob(
-    (blob) => {
-      if (!blob) {
-        window.alert("当前浏览器无法导出该格式。");
-        return;
-      }
+  try {
+    els.previewCanvas.toBlob(
+      (blob) => {
+        finishExport();
+        if (!blob) {
+          window.alert("导出失败，可能是尺寸过大或可用内存不足。请减小输出尺寸或更换格式后重试。");
+          return;
+        }
 
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
-      link.href = url;
-      link.download = `subtitle-stitch-${stamp}.${extensionForMime(mime)}`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
-    },
-    mime,
-    quality,
-  );
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+        link.href = url;
+        link.download = `subtitle-stitch-${stamp}.${extensionForMime(mime)}`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+      },
+      mime,
+      quality,
+    );
+  } catch {
+    finishExport();
+    window.alert("导出失败，请减小输出尺寸或更换格式后重试。");
+  }
 }
 
 function setCrop(top, bottom) {

@@ -533,6 +533,227 @@ select:disabled {
   border-color: var(--accent);
 }
 
+/* Desktop: keep the preview and timeline beside a full-height settings panel. */
+@media (min-width: 981px) {
+  .app {
+    height: 100vh;
+    height: 100dvh;
+    min-height: 540px;
+    grid-template-columns: minmax(0, 1fr) 360px;
+    grid-template-rows: auto minmax(0, 1fr) 184px;
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .topbar {
+    grid-column: 1 / -1;
+    padding: 10px 14px;
+  }
+
+  .topbar h1 {
+    font-size: 20px;
+  }
+
+  .workspace {
+    display: contents;
+  }
+
+  .preview-panel {
+    grid-column: 1;
+    grid-row: 2;
+    min-height: 0;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .panel-head {
+    min-height: 38px;
+    padding: 8px 12px;
+  }
+
+  .preview-stage {
+    min-height: 0;
+    padding: 12px;
+    container-type: size;
+  }
+
+  #previewCanvas {
+    max-width: 100%;
+    max-height: 100%;
+    max-width: 100cqw;
+    max-height: 100cqh;
+    object-fit: contain;
+  }
+
+  .controls {
+    grid-column: 2;
+    grid-row: 2 / 4;
+    min-height: 0;
+    scrollbar-gutter: stable;
+    overscroll-behavior: contain;
+  }
+
+  .control-block {
+    padding: 10px 12px;
+  }
+
+  .section-title {
+    margin-bottom: 8px;
+  }
+
+  .control-block>.section-title:last-child {
+    margin-bottom: 0;
+  }
+
+  .controls input:not([type="checkbox"]),
+  .controls select {
+    height: 30px;
+    padding-inline: 6px;
+  }
+
+  .controls .text-button {
+    min-height: 26px;
+    padding-inline: 7px;
+  }
+
+  .range-row {
+    grid-template-columns: 70px minmax(50px, 1fr) 54px 12px;
+    gap: 6px;
+    margin-bottom: 5px;
+  }
+
+  .range-readout {
+    line-height: 1.5;
+  }
+
+  .field {
+    gap: 5px;
+    margin-top: 8px;
+  }
+
+  .field-grid {
+    gap: 8px;
+  }
+
+  .field-grid .field {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+  }
+
+  .stitch-controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .stitch-controls h2 {
+    grid-column: 1 / -1;
+  }
+
+  .stitch-controls .segmented {
+    margin: 0;
+    padding: 2px;
+  }
+
+  .stitch-controls .segment {
+    min-height: 28px;
+    font-size: 13px;
+  }
+
+  .stitch-controls .field {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    margin: 0;
+  }
+
+  .switch.compact {
+    margin-top: 8px;
+  }
+
+  .custom-font-row {
+    gap: 8px;
+    grid-template-columns: minmax(0, 1fr) 56px;
+  }
+
+  .custom-font-row .button {
+    min-height: 30px;
+    padding: 0 8px;
+    margin-top: 8px;
+  }
+
+  .rgba-grid {
+    margin-top: 8px;
+    gap: 6px;
+  }
+
+  .rgba-grid label {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 4px;
+  }
+
+  .watermark-placement {
+    margin-top: 10px;
+    gap: 12px;
+  }
+
+  .position-grid {
+    grid-template-columns: repeat(3, 28px);
+    gap: 4px;
+  }
+
+  .position-grid button {
+    width: 28px;
+    height: 28px;
+  }
+
+  .position-grid button::after {
+    inset: 9px;
+  }
+
+  .offset-fields .field {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+  }
+
+  .timeline-shell {
+    grid-column: 1;
+    grid-row: 3;
+    min-width: 0;
+    min-height: 0;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .timeline {
+    min-height: 0;
+    padding: 8px 12px;
+    gap: 8px;
+  }
+
+  .thumb {
+    flex-basis: 150px;
+    grid-template-rows: 44px auto auto auto;
+    gap: 3px;
+    padding: 6px;
+    align-content: start;
+  }
+
+  .thumb img {
+    height: 44px;
+  }
+
+  .thumb-meta {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .thumb-actions button {
+    min-height: 24px;
+  }
+}
+
 @media (max-width: 980px) {
   .workspace {
     grid-template-columns: 1fr;

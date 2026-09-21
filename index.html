@@ -31,6 +31,7 @@
         </div>
         <div class="preview-stage" id="dropZone">
           <canvas id="previewCanvas"></canvas>
+          <div class="empty-state hidden" id="outputError" role="status" aria-live="polite"></div>
           <div class="empty-state" id="emptyState">
             <strong>导入电影截图</strong>
             <span>拖入多张图片，或点击右上角导入。</span>
@@ -65,7 +66,7 @@
           <div class="range-readout" id="cropReadout">后续图片字幕带：70% - 96%</div>
         </section>
 
-        <section class="control-block">
+        <section class="control-block stitch-controls">
           <h2>拼接</h2>
           <div class="segmented" role="group" aria-label="拼接方向">
             <button class="segment active" data-direction="vertical" type="button">纵向</button>
