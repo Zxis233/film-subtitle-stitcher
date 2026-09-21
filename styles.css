@@ -490,6 +490,10 @@ select:disabled {
   box-shadow: -4px 0 0 var(--accent);
 }
 
+.thumb.drop-after {
+  box-shadow: 4px 0 0 var(--accent);
+}
+
 .thumb img {
   width: 100%;
   height: 74px;

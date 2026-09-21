@@ -83,14 +83,18 @@ const OUTPUT_LIMITS = Object.freeze({
   bytesPerPixel: 12,
 });
 let exportInProgress = false;
+let importQueue = Promise.resolve();
+const PREVIEW_LIMITS = Object.freeze({ maxSide: 2048, maxPixels: 2000000 });
 
 function getOutputSizeError({ width, height }) {
   if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width < 1 || height < 1) {
     return "输出尺寸无效，请输入有效的正整数宽高。";
   }
   const pixels = width * height;
+  const preview = getPreviewSize({ width, height });
+  const estimatedBytes = pixels * OUTPUT_LIMITS.bytesPerPixel + preview.width * preview.height * 4;
   if (width > OUTPUT_LIMITS.maxSide || height > OUTPUT_LIMITS.maxSide ||
-    pixels > OUTPUT_LIMITS.maxPixels || pixels * OUTPUT_LIMITS.bytesPerPixel > OUTPUT_LIMITS.maxWorkingBytes) {
+    pixels > OUTPUT_LIMITS.maxPixels || estimatedBytes > OUTPUT_LIMITS.maxWorkingBytes) {
     return `输出尺寸 ${width} × ${height} 超出安全限制：单边最多 16384 像素、总计最多 1600 万像素。请关闭自动尺寸并减小宽高，或减少图片数量。`;
   }
   return "";
@@ -323,10 +327,17 @@ function loadImageFile(file) {
   });
 }
 
-async function addFiles(fileList) {
+function addFiles(fileList) {
   const files = Array.from(fileList).filter((file) => file.type.startsWith("image/"));
+  // Snapshot FileList before clearing the input; queue batches in invocation order.
+  els.fileInput.value = "";
   if (!files.length) return;
+  const batch = importQueue.then(() => importFiles(files));
+  importQueue = batch.catch(() => {});
+  return batch;
+}
 
+async function importFiles(files) {
   els.projectMeta.textContent = "正在读取图片...";
   try {
     const results = await Promise.allSettled(files.map(loadImageFile));
@@ -354,8 +365,6 @@ async function addFiles(fileList) {
   } catch (error) {
     window.alert(error.message);
     updateMeta();
-  } finally {
-    els.fileInput.value = "";
   }
 }
 
@@ -532,7 +541,7 @@ function drawSlices(ctx, slices, rawSize, outputSize) {
   }
 }
 
-function drawWatermark(ctx, outputSize) {
+function drawWatermark(ctx, outputSize, rasterScale = 1) {
   const wm = state.watermark;
   const text = wm.text.trim();
   if (!wm.enabled || !text) return;
@@ -543,13 +552,13 @@ function drawWatermark(ctx, outputSize) {
       ? wm.offsetX
       : horizontal === "right"
         ? outputSize.width - wm.offsetX
-        : outputSize.width / 2;
+        : outputSize.width / 2 + wm.offsetX;
   const y =
     vertical === "top"
       ? wm.offsetY
       : vertical === "bottom"
         ? outputSize.height - wm.offsetY
-        : outputSize.height / 2;
+        : outputSize.height / 2 + wm.offsetY;
 
   ctx.save();
   ctx.font = `700 ${wm.size}px ${wm.font}`;
@@ -557,10 +566,34 @@ function drawWatermark(ctx, outputSize) {
   ctx.textAlign = horizontal === "left" ? "left" : horizontal === "right" ? "right" : "center";
   ctx.textBaseline = vertical === "top" ? "top" : vertical === "bottom" ? "bottom" : "middle";
   ctx.shadowColor = "rgba(0, 0, 0, 0.36)";
-  ctx.shadowBlur = Math.max(2, Math.round(wm.size / 8));
-  ctx.shadowOffsetY = Math.max(1, Math.round(wm.size / 18));
+  ctx.shadowBlur = Math.max(2, Math.round(wm.size / 8)) * rasterScale;
+  ctx.shadowOffsetY = Math.max(1, Math.round(wm.size / 18)) * rasterScale;
   ctx.fillText(text, x, y);
   ctx.restore();
+}
+
+function getPreviewSize({ width, height }) {
+  const scale = Math.min(1, PREVIEW_LIMITS.maxSide / width, PREVIEW_LIMITS.maxSide / height,
+    Math.sqrt(PREVIEW_LIMITS.maxPixels / (width * height)));
+  return { width: Math.max(1, Math.floor(width * scale)), height: Math.max(1, Math.floor(height * scale)) };
+}
+
+function paintComposite(canvas, slices, rawSize, outputSize, rasterSize = outputSize) {
+  canvas.width = 0;
+  canvas.height = 0;
+  canvas.width = rasterSize.width;
+  canvas.height = rasterSize.height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas unavailable");
+  const scaleX = rasterSize.width / outputSize.width;
+  const scaleY = rasterSize.height / outputSize.height;
+  ctx.scale(scaleX, scaleY);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, outputSize.width, outputSize.height);
+  drawSlices(ctx, slices, rawSize, outputSize);
+  drawWatermark(ctx, outputSize, Math.min(scaleX, scaleY));
 }
 
 function renderComposite() {
@@ -592,19 +625,7 @@ function renderComposite() {
   if (sizeError) return showOutputError(sizeError);
 
   try {
-    // Reset both dimensions first so resizing cannot allocate oldWidth * newHeight.
-    canvas.width = 0;
-    canvas.height = 0;
-    canvas.width = outputSize.width;
-    canvas.height = outputSize.height;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("Canvas unavailable");
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = "high";
-    ctx.fillStyle = "#000";
-    ctx.fillRect(0, 0, outputSize.width, outputSize.height);
-    drawSlices(ctx, slices, rawSize, outputSize);
-    drawWatermark(ctx, outputSize);
+    paintComposite(canvas, slices, rawSize, outputSize, getPreviewSize(outputSize));
   } catch {
     return showOutputError("浏览器无法绘制此尺寸的图片，请减小输出尺寸或减少图片数量。");
   }
@@ -636,7 +657,10 @@ function downloadCanvas() {
   if (!renderComposite()) return;
   exportInProgress = true;
   els.downloadBtn.disabled = true;
+  const exportCanvas = document.createElement("canvas");
   const finishExport = () => {
+    exportCanvas.width = 0;
+    exportCanvas.height = 0;
     exportInProgress = false;
     els.downloadBtn.disabled = !state.images.length || !els.outputError.classList.contains("hidden");
   };
@@ -644,7 +668,13 @@ function downloadCanvas() {
   const mime = state.format;
   const quality = mime === "image/png" ? undefined : state.quality;
   try {
-    els.previewCanvas.toBlob(
+    const slices = computeSlices();
+    const rawSize = measureRawSize(slices);
+    const outputSize = resolveOutputSize(rawSize);
+    const sizeError = getOutputSizeError(outputSize);
+    if (sizeError) throw new Error(sizeError);
+    paintComposite(exportCanvas, slices, rawSize, outputSize);
+    exportCanvas.toBlob(
       (blob) => {
         finishExport();
         if (!blob) {
@@ -656,7 +686,7 @@ function downloadCanvas() {
         const link = document.createElement("a");
         const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
         link.href = url;
-        link.download = `subtitle-stitch-${stamp}.${extensionForMime(mime)}`;
+        link.download = `subtitle-stitch-${stamp}.${extensionForMime(blob.type)}`;
         document.body.appendChild(link);
         link.click();
         link.remove();
@@ -814,13 +844,28 @@ els.timeline.addEventListener("dragstart", (event) => {
   requestAnimationFrame(() => thumb.classList.add("dragging"));
 });
 
+function clearDropIndicators() {
+  $$(".thumb.drop-before, .thumb.drop-after").forEach((thumb) => thumb.classList.remove("drop-before", "drop-after"));
+}
+
+function getDropPlacement(event) {
+  const thumb = event.target.closest(".thumb");
+  if (!thumb) {
+    return { index: state.images.length, thumb: els.timeline.lastElementChild, after: true };
+  }
+  const rect = thumb.getBoundingClientRect();
+  const after = event.clientX > rect.left + rect.width / 2;
+  const index = state.images.findIndex((item) => item.id === thumb.dataset.id);
+  return { index: index + (after ? 1 : 0), thumb, after };
+}
+
 els.timeline.addEventListener("dragover", (event) => {
   if (!dragImageId) return;
   event.preventDefault();
-  $$(".thumb.drop-before").forEach((thumb) => thumb.classList.remove("drop-before"));
-  const thumb = event.target.closest(".thumb");
+  clearDropIndicators();
+  const { thumb, after } = getDropPlacement(event);
   if (thumb && thumb.dataset.id !== dragImageId) {
-    thumb.classList.add("drop-before");
+    thumb.classList.add(after ? "drop-after" : "drop-before");
   }
 });
 
@@ -828,21 +873,19 @@ els.timeline.addEventListener("drop", (event) => {
   if (!dragImageId) return;
   event.preventDefault();
 
-  const target = event.target.closest(".thumb");
-  if (!target) {
-    reorderImage(dragImageId, state.images.length);
-  } else {
-    const rect = target.getBoundingClientRect();
-    const targetId = target.dataset.id;
-    const baseIndex = state.images.findIndex((item) => item.id === targetId);
-    const targetIndex = baseIndex + (event.clientX > rect.left + rect.width / 2 ? 1 : 0);
-    reorderImage(dragImageId, targetIndex);
-  }
+  const { index } = getDropPlacement(event);
+  clearDropIndicators();
+  reorderImage(dragImageId, index);
+  dragImageId = null;
+});
+
+els.timeline.addEventListener("dragleave", (event) => {
+  if (!els.timeline.contains(event.relatedTarget)) clearDropIndicators();
 });
 
 els.timeline.addEventListener("dragend", () => {
   dragImageId = null;
-  $$(".thumb").forEach((thumb) => thumb.classList.remove("dragging", "drop-before"));
+  $$(".thumb").forEach((thumb) => thumb.classList.remove("dragging", "drop-before", "drop-after"));
 });
 
 ["dragenter", "dragover"].forEach((name) => {
